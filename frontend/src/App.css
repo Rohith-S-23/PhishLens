@@ -1,0 +1,129 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #f4f8fc;
+  color: #172033;
+}
+
+.app {
+  min-height: 100vh;
+  padding: 70px 20px;
+  text-align: center;
+}
+
+h1 {
+  font-size: 64px;
+  line-height: 1.05;
+  margin-bottom: 20px;
+}
+
+h1 span {
+  color: #2674d9;
+}
+
+.subtitle {
+  font-size: 20px;
+  color: #64748b;
+  margin-bottom: 50px;
+}
+
+.search-box {
+  max-width: 1000px;
+  margin: auto;
+  display: flex;
+  background: white;
+  border: 1px solid #dbe3ed;
+  border-radius: 18px;
+  padding: 10px;
+  box-shadow: 0 15px 40px rgba(30, 60, 90, 0.08);
+}
+
+.search-box input {
+  flex: 1;
+  border: none;
+  outline: none;
+  padding: 20px;
+  font-size: 18px;
+}
+
+.search-box button {
+  border: none;
+  background: #2674d9;
+  color: white;
+  padding: 0 30px;
+  border-radius: 14px;
+  font-size: 17px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.search-box button:disabled {
+  opacity: 0.6;
+}
+
+.error {
+  max-width: 1000px;
+  margin: 20px auto;
+  padding: 18px;
+  border: 1px solid #ffb4b4;
+  background: #fff1f1;
+  color: #d32f2f;
+  border-radius: 12px;
+}
+
+.result-card {
+  max-width: 1000px;
+  margin: 35px auto;
+  background: white;
+  padding: 35px;
+  border-radius: 20px;
+  text-align: left;
+  box-shadow: 0 15px 40px rgba(30, 60, 90, 0.08);
+}
+
+.result-card h2 {
+  font-size: 30px;
+}
+
+.risk {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f5f8fc;
+  padding: 20px;
+  border-radius: 14px;
+  margin: 20px 0;
+}
+
+.risk strong {
+  font-size: 32px;
+  color: #2674d9;
+}
+
+.result-card li {
+  margin: 12px 0;
+}
+
+.probabilities {
+  display: flex;
+  gap: 20px;
+  margin-top: 25px;
+}
+
+.probabilities div {
+  flex: 1;
+  padding: 20px;
+  background: #f5f8fc;
+  border-radius: 14px;
+}
+
+.probabilities span {
+  display: block;
+  font-size: 25px;
+  margin-top: 8px;
+  color: #2674d9;
+}

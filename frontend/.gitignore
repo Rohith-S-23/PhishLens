@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Machine Learning model
+*.pkl
+*.joblib
+
+# Dataset
+dataset/*.csv
+
+# Frontend
+node_modules/
+frontend/dist/
+
+# Environment
+.env
+.env.*
+
+# VS Code
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
