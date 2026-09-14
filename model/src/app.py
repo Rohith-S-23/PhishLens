@@ -1,36 +1,44 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-
 import joblib
 import pandas as pd
-from urllib.parse import urlparse
+import socket
+import re
 from pathlib import Path
+from urllib.parse import urlparse
 
-from model.src.feature_extraction import extract_features, FEATURES
+from .feature_extraction import extract_features, FEATURES
 
 
 # ============================================================
-# APP
+# PATH CONFIGURATION
+# ============================================================
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+MODEL_DIR = BASE_DIR / "model"
+DATASET_PATH = BASE_DIR / "dataset" / "PhiUSIIL_Phishing_URL_Dataset.csv"
+MODEL_PATH = MODEL_DIR / "phishing_model.pkl"
+
+
+# ============================================================
+# FASTAPI
 # ============================================================
 
 app = FastAPI(
     title="PhishLens API",
-    description="AI Powered Phishing URL Detection API",
+    description="AI-powered phishing URL detection and explainable risk analysis",
     version="1.0.0"
 )
 
 
 # ============================================================
-# CORS - ALLOWS REACT FRONTEND TO CONNECT
+# CORS - CONNECT REACT FRONTEND
 # ============================================================
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -38,24 +46,17 @@ app.add_middleware(
 
 
 # ============================================================
-# PATHS
-# ============================================================
-
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-
-MODEL_PATH = BASE_DIR / "model" / "phishing_model.pkl"
-DATASET_PATH = BASE_DIR / "dataset" / "PhiUSIIL_Phishing_URL_Dataset.csv"
-
-
-# ============================================================
-# LOAD MODEL
+# LOAD ML MODEL
 # ============================================================
 
 print("Loading PhishLens model...")
 
-model = joblib.load(MODEL_PATH)
-
-print("Model loaded successfully!")
+try:
+    model = joblib.load(MODEL_PATH)
+    print("Model loaded successfully!")
+except Exception as e:
+    print("Model loading failed:", e)
+    model = None
 
 
 # ============================================================
@@ -64,17 +65,22 @@ print("Model loaded successfully!")
 
 print("Loading dataset...")
 
+url_labels = {}
+
 try:
 
     dataset = pd.read_csv(DATASET_PATH)
 
+    dataset["URL"] = (
+        dataset["URL"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
     url_labels = dict(
         zip(
-            dataset["URL"]
-            .astype(str)
-            .str.strip()
-            .str.lower(),
-
+            dataset["URL"],
             dataset["label"]
         )
     )
@@ -84,9 +90,7 @@ try:
 
 except Exception as e:
 
-    print("Dataset loading error:", e)
-
-    url_labels = {}
+    print("Dataset loading failed:", e)
 
 
 # ============================================================
@@ -125,8 +129,54 @@ TRUSTED_DOMAINS = {
     "www.youtube.com",
 
     "wikipedia.org",
-    "www.wikipedia.org"
+    "www.wikipedia.org",
+
+    "openai.com",
+    "www.openai.com",
+
+    "stackoverflow.com",
+    "www.stackoverflow.com",
+
+    "oracle.com",
+    "www.oracle.com",
+
+    "ibm.com",
+    "www.ibm.com"
 }
+
+
+# ============================================================
+# SUSPICIOUS KEYWORDS
+# ============================================================
+
+SUSPICIOUS_KEYWORDS = [
+
+    "login",
+    "signin",
+    "sign-in",
+    "verify",
+    "verification",
+    "account",
+    "password",
+    "passwd",
+    "confirm",
+    "confirmation",
+    "secure",
+    "security",
+    "update",
+    "authenticate",
+    "auth",
+    "wallet",
+    "banking",
+    "payment",
+    "billing",
+    "recover",
+    "reset",
+    "unlock",
+    "suspended",
+    "claim",
+    "urgent"
+]
 
 
 # ============================================================
@@ -147,11 +197,300 @@ def get_domain(url):
         if ":" in domain:
             domain = domain.split(":")[0]
 
-        return domain
+        return domain.strip()
 
-    except:
+    except Exception:
 
         return ""
+
+
+# ============================================================
+# NORMALIZE URL
+# ============================================================
+
+def normalize_url(url):
+
+    url = url.strip()
+
+    if not url:
+        return ""
+
+    if not re.match(r"^https?://", url, re.IGNORECASE):
+
+        url = "https://" + url
+
+    return url
+
+
+# ============================================================
+# VALID URL FORMAT
+# ============================================================
+
+def is_valid_url(url):
+
+    try:
+
+        parsed = urlparse(url)
+
+        return (
+            parsed.scheme in ["http", "https"]
+            and bool(parsed.netloc)
+        )
+
+    except Exception:
+
+        return False
+
+
+# ============================================================
+# CHECK DOMAIN EXISTENCE
+# ============================================================
+
+def domain_exists(domain):
+
+    if not domain:
+        return False
+
+    try:
+
+        socket.gethostbyname_ex(domain)
+
+        return True
+
+    except socket.gaierror:
+
+        return False
+
+    except Exception:
+
+        return False
+
+
+# ============================================================
+# DOMAIN AGE / REPUTATION PLACEHOLDER
+# ============================================================
+
+def get_domain_reputation(domain):
+
+    if domain in TRUSTED_DOMAINS:
+
+        return {
+            "trusted": True,
+            "reason": "Domain belongs to a recognized trusted website"
+        }
+
+    return {
+        "trusted": False,
+        "reason": ""
+    }
+
+
+# ============================================================
+# SECURITY RULE ENGINE
+# ============================================================
+
+def security_rules(url, domain):
+
+    reasons = []
+
+    rule_risk = 0
+
+    normalized = url.lower()
+
+
+    # --------------------------------------------------------
+    # HTTP
+    # --------------------------------------------------------
+
+    if not normalized.startswith("https://"):
+
+        rule_risk += 15
+
+        reasons.append(
+            "Connection is not using HTTPS"
+        )
+
+
+    # --------------------------------------------------------
+    # @ SYMBOL
+    # --------------------------------------------------------
+
+    if "@" in url:
+
+        rule_risk += 20
+
+        reasons.append(
+            "URL contains @ symbol which can hide the real destination"
+        )
+
+
+    # --------------------------------------------------------
+    # VERY LONG URL
+    # --------------------------------------------------------
+
+    if len(url) > 75:
+
+        rule_risk += 15
+
+        reasons.append(
+            "Unusually long URL detected"
+        )
+
+
+    # --------------------------------------------------------
+    # MANY SUBDOMAINS
+    # --------------------------------------------------------
+
+    if domain.count(".") >= 3:
+
+        rule_risk += 15
+
+        reasons.append(
+            "Multiple subdomains detected"
+        )
+
+
+    # --------------------------------------------------------
+    # IP ADDRESS
+    # --------------------------------------------------------
+
+    ip_pattern = r"^(?:\d{1,3}\.){3}\d{1,3}$"
+
+    if re.match(ip_pattern, domain):
+
+        rule_risk += 25
+
+        reasons.append(
+            "URL uses an IP address instead of a normal domain"
+        )
+
+
+    # --------------------------------------------------------
+    # DIGITS
+    # --------------------------------------------------------
+
+    digit_count = sum(
+        character.isdigit()
+        for character in url
+    )
+
+    if digit_count >= 5:
+
+        rule_risk += 10
+
+        reasons.append(
+            "High number of digits detected in URL"
+        )
+
+
+    # --------------------------------------------------------
+    # SUSPICIOUS KEYWORDS
+    # --------------------------------------------------------
+
+    found_words = [
+
+        word
+        for word in SUSPICIOUS_KEYWORDS
+        if word in normalized
+
+    ]
+
+    if found_words:
+
+        keyword_risk = min(
+            len(found_words) * 8,
+            30
+        )
+
+        rule_risk += keyword_risk
+
+        reasons.append(
+            "Suspicious keyword(s): "
+            + ", ".join(found_words)
+        )
+
+
+    # --------------------------------------------------------
+    # HYPHENATED DOMAIN
+    # --------------------------------------------------------
+
+    domain_name = domain.split(".")[0]
+
+    if "-" in domain_name:
+
+        rule_risk += 10
+
+        reasons.append(
+            "Hyphenated domain pattern detected"
+        )
+
+
+    # --------------------------------------------------------
+    # RANDOM LOOKING DOMAIN
+    # --------------------------------------------------------
+
+    if len(domain_name) >= 12:
+
+        vowel_count = sum(
+            char in "aeiou"
+            for char in domain_name.lower()
+        )
+
+        if vowel_count <= 2:
+
+            rule_risk += 10
+
+            reasons.append(
+                "Domain contains an unusual random-looking character pattern"
+            )
+
+
+    # --------------------------------------------------------
+    # SPECIAL CHARACTERS
+    # --------------------------------------------------------
+
+    special_count = sum(
+
+        not char.isalnum()
+        and char not in "/:.-_"
+
+        for char in url
+
+    )
+
+    if special_count >= 3:
+
+        rule_risk += 10
+
+        reasons.append(
+            "High number of unusual special characters detected"
+        )
+
+
+    return min(rule_risk, 100), reasons
+
+
+# ============================================================
+# RISK LEVEL
+# ============================================================
+
+def get_risk_level(score):
+
+    if score < 30:
+
+        return "LOW"
+
+    elif score < 60:
+
+        return "MEDIUM"
+
+    elif score < 80:
+
+        return "HIGH"
+
+    else:
+
+        return "CRITICAL"
 
 
 # ============================================================
@@ -162,10 +501,31 @@ def get_domain(url):
 def home():
 
     return {
+
         "message": "PhishLens API",
+
         "status": "online",
-        "model": "Random Forest",
-        "features": len(FEATURES)
+
+        "version": "1.0.0",
+
+        "features": [
+
+            "URL validation",
+
+            "Domain existence check",
+
+            "Dataset verification",
+
+            "Machine Learning",
+
+            "Security rule engine",
+
+            "Explainable AI",
+
+            "Risk scoring"
+
+        ]
+
     }
 
 
@@ -177,73 +537,212 @@ def home():
 def health():
 
     return {
+
         "status": "healthy",
-        "api": "online",
-        "model": "loaded"
+
+        "model_loaded": model is not None,
+
+        "known_urls": len(url_labels)
+
     }
 
 
 # ============================================================
-# ANALYZE URL
+# MAIN ANALYZER
 # ============================================================
 
 @app.post("/analyze")
 def analyze(data: URLRequest):
 
-    url = data.url.strip()
+    # ========================================================
+    # 1. INPUT
+    # ========================================================
 
-    if not url:
+    original_url = data.url.strip()
+
+    if not original_url:
 
         return {
-            "result": "ERROR",
-            "message": "URL cannot be empty"
+
+            "result": "INVALID",
+
+            "risk_score": 0,
+
+            "phishing_probability": 0,
+
+            "legitimate_probability": 0,
+
+            "reasons": [
+                "URL input is empty"
+            ],
+
+            "recommended_action":
+                "Enter a valid URL and try again."
+
         }
 
 
-    normalized_url = url.lower()
+    # ========================================================
+    # 2. NORMALIZE
+    # ========================================================
+
+    url = normalize_url(original_url)
+
+    normalized_url = url.lower().strip()
+
+
+    # ========================================================
+    # 3. URL FORMAT VALIDATION
+    # ========================================================
+
+    if not is_valid_url(url):
+
+        return {
+
+            "url": original_url,
+
+            "result": "INVALID",
+
+            "risk_score": 0,
+
+            "phishing_probability": 0,
+
+            "legitimate_probability": 0,
+
+            "reasons": [
+
+                "Invalid URL format"
+
+            ],
+
+            "recommended_action":
+                "Enter a valid URL such as https://example.com"
+
+        }
+
+
+    # ========================================================
+    # 4. DOMAIN
+    # ========================================================
 
     domain = get_domain(url)
 
 
+    if not domain:
+
+        return {
+
+            "url": original_url,
+
+            "result": "INVALID",
+
+            "risk_score": 0,
+
+            "phishing_probability": 0,
+
+            "legitimate_probability": 0,
+
+            "reasons": [
+
+                "Unable to extract domain from URL"
+
+            ],
+
+            "recommended_action":
+                "Check the URL and try again."
+
+        }
+
+
     # ========================================================
-    # 1. EXACT DATASET CHECK
+    # 5. DOMAIN EXISTENCE CHECK
+    # ========================================================
+
+    exists = domain_exists(domain)
+
+
+    # IMPORTANT:
+    # If domain does NOT exist, don't call it SAFE
+    # and don't call it SUSPICIOUS.
+    #
+    # Return NOT_FOUND.
+
+    if not exists:
+
+        return {
+
+            "url": original_url,
+
+            "domain": domain,
+
+            "result": "NOT_FOUND",
+
+            "risk_score": None,
+
+            "phishing_probability": None,
+
+            "legitimate_probability": None,
+
+            "reasons": [
+
+                "Domain does not appear to exist",
+
+                "DNS resolution failed",
+
+                "No active domain was found for this URL"
+
+            ],
+
+            "recommended_action":
+                "Check the URL spelling. Do not enter sensitive information into unknown links."
+
+        }
+
+
+    # ========================================================
+    # 6. EXACT DATASET CHECK
     # ========================================================
 
     if normalized_url in url_labels:
 
-        dataset_label = int(url_labels[normalized_url])
+        dataset_label = int(
+            url_labels[normalized_url]
+        )
 
-        # IMPORTANT:
+
         # PhiUSIIL dataset:
-        # 0 = phishing
-        # 1 = legitimate
+        # Based on your trained model:
+        # 0 = Legitimate
+        # 1 = Phishing
 
-        if dataset_label == 0:
+        if dataset_label == 1:
 
             return {
 
-                "url": url,
+                "url": original_url,
+
+                "domain": domain,
 
                 "result": "SUSPICIOUS",
 
                 "risk_score": 95,
 
+                "risk_level": "CRITICAL",
+
                 "phishing_probability": 100,
 
                 "legitimate_probability": 0,
 
+                "source": "Known phishing dataset",
+
                 "reasons": [
 
-                    "URL matches a known phishing record",
-
-                    "URL was identified as phishing in the training dataset"
+                    "URL matches a known phishing record in the dataset"
 
                 ],
 
                 "recommended_action":
-                    "Do not open this link. Do not enter passwords, OTPs or personal information.",
-
-                "source": "Dataset verification"
+                    "Do not open the link or enter passwords, OTPs or personal information."
 
             }
 
@@ -252,69 +751,102 @@ def analyze(data: URLRequest):
 
             return {
 
-                "url": url,
+                "url": original_url,
+
+                "domain": domain,
 
                 "result": "SAFE",
 
                 "risk_score": 5,
 
+                "risk_level": "LOW",
+
                 "phishing_probability": 0,
 
                 "legitimate_probability": 100,
 
+                "source": "Verified legitimate dataset",
+
                 "reasons": [
 
-                    "URL matches a legitimate record in the dataset",
-
-                    "No known phishing classification for this URL"
+                    "URL matches a known legitimate record in the dataset"
 
                 ],
 
                 "recommended_action":
-                    "URL appears legitimate. Always verify the domain before entering sensitive information.",
-
-                "source": "Dataset verification"
+                    "URL appears legitimate. Still verify the domain before entering sensitive information."
 
             }
 
 
     # ========================================================
-    # 2. TRUSTED DOMAIN CHECK
+    # 7. TRUSTED DOMAIN CHECK
     # ========================================================
 
-    if domain in TRUSTED_DOMAINS:
+    reputation = get_domain_reputation(domain)
+
+
+    if reputation["trusted"]:
 
         return {
 
-            "url": url,
+            "url": original_url,
+
+            "domain": domain,
 
             "result": "SAFE",
 
             "risk_score": 5,
 
+            "risk_level": "LOW",
+
             "phishing_probability": 0,
 
             "legitimate_probability": 100,
+
+            "source": "Trusted domain",
 
             "reasons": [
 
                 "Domain matches a recognized trusted website",
 
-                "Official domain pattern detected"
+                "Domain is currently reachable"
 
             ],
 
             "recommended_action":
-                "URL appears safe. Always verify the domain before entering sensitive information.",
-
-            "source": "Trusted domain verification"
+                "URL appears safe. Always verify the domain before entering sensitive information."
 
         }
 
 
     # ========================================================
-    # 3. FEATURE EXTRACTION
+    # 8. FEATURE EXTRACTION
     # ========================================================
+
+    if model is None:
+
+        return {
+
+            "url": original_url,
+
+            "domain": domain,
+
+            "result": "ERROR",
+
+            "risk_score": None,
+
+            "reasons": [
+
+                "Machine learning model is not loaded"
+
+            ],
+
+            "recommended_action":
+                "Start the backend again after checking the model file."
+
+        }
+
 
     try:
 
@@ -329,158 +861,101 @@ def analyze(data: URLRequest):
 
         return {
 
+            "url": original_url,
+
+            "domain": domain,
+
             "result": "ERROR",
 
-            "message": f"Feature extraction failed: {str(e)}"
+            "risk_score": None,
+
+            "reasons": [
+
+                "Feature extraction failed",
+
+                str(e)
+
+            ],
+
+            "recommended_action":
+                "Check the feature extraction module."
 
         }
 
 
     # ========================================================
-    # 4. MACHINE LEARNING PREDICTION
+    # 9. MACHINE LEARNING PREDICTION
     # ========================================================
 
-    prediction = model.predict(X)[0]
+    try:
 
-    probabilities = model.predict_proba(X)[0]
+        prediction = model.predict(X)[0]
+
+        probabilities = model.predict_proba(X)[0]
+
+    except Exception as e:
+
+        return {
+
+            "url": original_url,
+
+            "domain": domain,
+
+            "result": "ERROR",
+
+            "risk_score": None,
+
+            "reasons": [
+
+                "Machine learning prediction failed",
+
+                str(e)
+
+            ],
+
+            "recommended_action":
+                "Check the trained model and feature configuration."
+
+        }
 
 
-    # Dataset:
-    # 0 = phishing
-    # 1 = legitimate
+    # Your model:
+    # 0 = Legitimate
+    # 1 = Phishing
 
-    phishing_probability = float(probabilities[0])
+    phishing_probability = float(
+        probabilities[1]
+    )
 
-    legitimate_probability = float(probabilities[1])
+    legitimate_probability = float(
+        probabilities[0]
+    )
 
 
     ml_risk = phishing_probability * 100
 
 
     # ========================================================
-    # 5. XAI SECURITY RULES
+    # 10. SECURITY RULES
     # ========================================================
 
-    reasons = []
-
-    rule_risk = 0
-
-
-    # HTTPS
-
-    if not url.startswith("https://"):
-
-        rule_risk += 15
-
-        reasons.append(
-            "Connection is not using HTTPS"
-        )
-
-
-    # @ symbol
-
-    if "@" in url:
-
-        rule_risk += 20
-
-        reasons.append(
-            "URL contains @ symbol which can hide the actual destination"
-        )
-
-
-    # Long URL
-
-    if len(url) > 75:
-
-        rule_risk += 15
-
-        reasons.append(
-            "Unusually long URL detected"
-        )
-
-
-    # Many dots
-
-    if url.count(".") > 3:
-
-        rule_risk += 15
-
-        reasons.append(
-            "Multiple subdomains detected"
-        )
-
-
-    # Digits
-
-    digit_count = sum(
-        c.isdigit()
-        for c in url
+    rule_risk, reasons = security_rules(
+        url,
+        domain
     )
 
 
-    if digit_count > 4:
-
-        rule_risk += 10
-
-        reasons.append(
-            "High number of digits in URL"
-        )
-
-
-    # Suspicious keywords
-
-    suspicious_words = [
-
-        "login",
-        "verify",
-        "verification",
-        "account",
-        "password",
-        "signin",
-        "confirm",
-        "secure",
-        "update",
-        "bank",
-        "payment",
-        "wallet",
-        "credential"
-
-    ]
-
-
-    found_words = [
-
-        word
-        for word in suspicious_words
-        if word in normalized_url
-
-    ]
-
-
-    if found_words:
-
-        rule_risk += min(
-            len(found_words) * 10,
-            30
-        )
-
-        reasons.append(
-
-            "Suspicious keyword(s): "
-            + ", ".join(found_words)
-
-        )
-
-
     # ========================================================
-    # 6. FINAL RISK SCORE
+    # 11. FINAL RISK SCORE
     # ========================================================
 
     risk_score = (
 
-        (ml_risk * 0.6)
+        (ml_risk * 0.65)
+
         +
-        (rule_risk * 0.4)
+
+        (rule_risk * 0.35)
 
     )
 
@@ -488,7 +963,10 @@ def analyze(data: URLRequest):
     risk_score = round(
 
         min(
-            max(risk_score, 0),
+            max(
+                risk_score,
+                0
+            ),
             100
         ),
 
@@ -498,7 +976,7 @@ def analyze(data: URLRequest):
 
 
     # ========================================================
-    # 7. FINAL RESULT
+    # 12. CLASSIFICATION
     # ========================================================
 
     if risk_score >= 60:
@@ -507,22 +985,10 @@ def analyze(data: URLRequest):
 
         action = (
 
-            "Do not open this link. "
-            "Avoid entering passwords, OTPs, "
-            "banking or personal information."
+            "Do not open the link or enter passwords, "
+            "OTPs, banking details or personal information."
 
         )
-
-
-        if not reasons:
-
-            reasons.append(
-
-                "Machine learning model detected "
-                "phishing-like URL characteristics"
-
-            )
-
 
     else:
 
@@ -531,13 +997,27 @@ def analyze(data: URLRequest):
         action = (
 
             "URL appears low risk. "
-            "Verify the domain before entering "
-            "sensitive information."
+            "Verify the domain before entering sensitive information."
 
         )
 
 
-        if not reasons:
+    # ========================================================
+    # 13. XAI FALLBACK
+    # ========================================================
+
+    if not reasons:
+
+        if prediction == 1:
+
+            reasons.append(
+
+                "Machine learning model detected "
+                "phishing-like URL characteristics"
+
+            )
+
+        else:
 
             reasons.append(
 
@@ -547,33 +1027,43 @@ def analyze(data: URLRequest):
 
 
     # ========================================================
-    # 8. RESPONSE
+    # 14. RESPONSE
     # ========================================================
 
     return {
 
-        "url": url,
+        "url": original_url,
+
+        "domain": domain,
 
         "result": result,
 
         "risk_score": risk_score,
 
-        "phishing_probability":
-            round(
-                phishing_probability * 100,
-                2
-            ),
+        "risk_level": get_risk_level(
+            risk_score
+        ),
 
-        "legitimate_probability":
-            round(
-                legitimate_probability * 100,
-                2
-            ),
+        "phishing_probability": round(
+
+            phishing_probability * 100,
+            2
+
+        ),
+
+        "legitimate_probability": round(
+
+            legitimate_probability * 100,
+            2
+
+        ),
+
+        "source": "Machine Learning + Security Rules",
+
+        "threat_indicators": len(reasons),
 
         "reasons": reasons,
 
-        "recommended_action": action,
-
-        "source": "ML + XAI Security Analysis"
+        "recommended_action": action
 
     }

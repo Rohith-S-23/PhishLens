@@ -1,29 +1,51 @@
+# =========================
 # Python
+# =========================
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual Environment
 .venv/
 venv/
 env/
 
-# Machine Learning model
-*.pkl
-*.joblib
-
-# Dataset
-dataset/*.csv
-
-# Frontend
-node_modules/
-frontend/dist/
-
-# Environment
+# Environment Variables
 .env
 .env.*
 
-# VS Code
+# =========================
+# Machine Learning
+# =========================
+*.pkl
+*.joblib
+
+# =========================
+# Dataset
+# =========================
+dataset/*.csv
+
+# =========================
+# React / Vite Frontend
+# =========================
+node_modules/
+frontend/dist/
+dist/
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# IDE
+# =========================
 .vscode/
 .idea/
 
+# =========================
 # OS
+# =========================
 Thumbs.db
-.DS_Store
+.DS_Store 
